@@ -27,6 +27,7 @@ The key comparison is not just final recall. The project tracks whether extra tr
 - **Frozen baseline**: title/overview sentence-transformer embeddings from CineSeek.
 - **Linear adapter**: one trainable linear residual projection.
 - **Residual MLP adapter**: LayerNorm + bottleneck MLP + residual connection.
+- **Concat linear adapter**: concatenate title and overview embeddings on the movie side, then learn a linear projection back to the query embedding dimension.
 - **Training objective**: full-catalog contrastive classification over all movie items.
 - **Evaluation**: recall@10, recall@50, recall@100, MRR, NDCG.
 
@@ -112,6 +113,47 @@ PYTHONPATH=src python -m cineseek_adapters.train \
   --max-train-examples 512 \
   --output artifacts/checkpoints/smoke_residual_mlp.pt
 ```
+
+## Experiment Results
+
+All models use the same CineSeek text-query-to-movie evaluation split and the same frozen sentence-transformer embedding inputs. Adapter models only train a lightweight transformation head on top of the frozen embeddings.
+
+| Model | Split | R@10 | R@50 | R@100 | MRR | NDCG | Params | Encode ms | Search ms |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Raw frozen embeddings | val | 0.944 | 0.970 | 0.976 | 0.828 | 0.862 | 0 | 0.124 | 0.030 |
+| Raw frozen embeddings | test | 0.931 | 0.963 | 0.973 | 0.829 | 0.862 | 0 | 0.058 | 0.025 |
+| Linear adapter | test | 0.946 | 0.969 | 0.977 | 0.847 | 0.877 | 147,840 | 0.062 | 0.023 |
+| Residual MLP adapter | test | 0.951 | 0.969 | 0.978 | 0.870 | 0.895 | 591,744 | 0.084 | 0.022 |
+| Concat linear adapter | test | 0.956 | 0.975 | 0.979 | 0.872 | 0.897 | 295,296 | 0.071 | 0.023 |
+
+Validation results for the residual MLP improved consistently over five epochs, with best validation MRR at epoch 5:
+
+| Epoch | Val R@10 | Val MRR | Val NDCG |
+| --- | ---: | ---: | ---: |
+| 1 | 0.955 | 0.855 | 0.884 |
+| 2 | 0.958 | 0.861 | 0.889 |
+| 3 | 0.959 | 0.867 | 0.894 |
+| 4 | 0.961 | 0.870 | 0.896 |
+| 5 | 0.963 | 0.872 | 0.898 |
+
+The concat linear ablation also improved consistently over five epochs, suggesting that preserving title and overview as separate item-side signals before projection is useful:
+
+| Epoch | Val R@10 | Val MRR | Val NDCG |
+| --- | ---: | ---: | ---: |
+| 1 | 0.958 | 0.863 | 0.891 |
+| 2 | 0.960 | 0.873 | 0.898 |
+| 3 | 0.963 | 0.877 | 0.902 |
+| 4 | 0.963 | 0.880 | 0.904 |
+| 5 | 0.965 | 0.882 | 0.906 |
+
+## Key Findings
+
+- The raw sentence-transformer baseline is already strong, but lightweight adaptation still improves ranking quality.
+- The linear adapter improves test MRR from 0.829 to 0.847 with only 147K trainable parameters.
+- The residual MLP adapter improves test MRR from 0.829 to 0.870 and NDCG from 0.862 to 0.895.
+- The concat linear adapter performs slightly better than the residual MLP on this split, reaching test MRR 0.872 and NDCG 0.897 with fewer parameters than the residual MLP.
+- This suggests that the strongest gain may come from item-side title/overview fusion structure, not just from adding nonlinear capacity.
+- The residual MLP adds less than 0.03 ms per query over the raw baseline in this offline measurement, so the quality gain is not coming from a large inference-cost increase.
 
 ## Expected Interpretation
 

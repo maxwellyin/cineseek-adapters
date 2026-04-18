@@ -29,6 +29,10 @@ def build_item_embeddings(dataset: dict, mode: str = "title_overview_avg") -> to
         title = normalize(dataset["item_title_embeddings"][1:])
         overview = normalize(dataset["item_overview_embeddings"][1:])
         return normalize((title + overview) / 2.0)
+    if mode == "title_overview_concat":
+        title = normalize(dataset["item_title_embeddings"][1:])
+        overview = normalize(dataset["item_overview_embeddings"][1:])
+        return torch.cat([title, overview], dim=-1)
     raise ValueError(f"Unsupported item embedding mode: {mode}")
 
 
@@ -42,4 +46,3 @@ def get_positive_ids(dataset: dict, split: str) -> list[list[int]]:
 
 def get_query_embeddings(dataset: dict, split: str) -> torch.Tensor:
     return normalize(dataset[f"{split}_query_embeddings"])
-
