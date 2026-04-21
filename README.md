@@ -159,22 +159,10 @@ The concat linear ablation also improved consistently over five epochs, suggesti
 
 See [Retrieval Training Notes](docs/retrieval_training_notes.md) for the main lessons from comparing the original CineSeek trained dual-tower checkpoint with the adapter ablations, including why `concat -> projection` worked better after changing the objective and preserving the pretrained embedding space.
 
-## Expected Interpretation
+## Interpretation
 
-The raw sentence-transformer baseline is already strong. A useful adapter result is not guaranteed. That is the point of the project: it shows disciplined model adaptation and ablation rather than forcing a more complex model into the deployed CineSeek demo.
+The raw sentence-transformer baseline is already strong, but the adapter results show that controlled task adaptation still helps when it preserves the pretrained embedding geometry.
 
-Strong outcomes:
+The most important result is the concat linear ablation. It outperforms both the raw baseline and the residual MLP while using fewer parameters than the residual MLP. This suggests that CineSeek benefits more from structured item-side title/overview fusion than from simply adding nonlinear capacity.
 
-- adapter improves recall/MRR without hurting latency much
-- adapter only improves recall but hurts MRR, indicating ranking tradeoffs
-- adapter fails to beat baseline, showing that the frozen representation is already well matched to the task
-
-Any of these outcomes are valid if they are measured cleanly.
-
-## Resume Framing
-
-**CineSeek-Adapters: Lightweight Retrieval Adaptation**
-
-- Built a PyTorch training and evaluation pipeline for residual adapter tuning over frozen sentence-transformer retrieval embeddings.
-- Compared raw embeddings, linear projection, and residual MLP adapters using recall@k, MRR, NDCG, trainable parameter count, and latency.
-- Analyzed whether additional trainable capacity improves semantic movie retrieval or overfits a small relevance dataset.
+The main engineering lesson is that small-data retrieval adaptation should avoid relearning the full semantic space. A stable setup keeps the query encoder frozen, initializes item fusion near the raw baseline, and trains against the full movie catalog so the objective matches retrieval-time ranking.
