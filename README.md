@@ -10,9 +10,20 @@ The project is intentionally separate from the deployed CineSeek web demo:
 | CineSeek-MM | Multimodal retrieval over movie metadata and posters using CLIP-style embeddings |
 | CineSeek-Adapters | Training and ablation project for lightweight retrieval adaptation |
 
+## Why This Matters
+
+In production retrieval systems, fully retraining an embedding model can be expensive, risky, and difficult to deploy incrementally. It may require new labeled data, full embedding recomputation, index rebuilds, and careful validation to avoid representation drift.
+
+This project studies a more controlled alternative: keep the sentence-transformer encoder frozen and train lightweight adapters on top of cached embeddings. The goal is to improve ranking quality while preserving the operational advantages of the existing retrieval stack:
+
+- reuse pretrained embeddings instead of retraining the encoder
+- keep adaptation small enough for fast iteration
+- measure quality and latency tradeoffs explicitly
+- preserve compatibility with FAISS-style indexed retrieval
+
 ## Research Question
 
-Can a small residual adapter improve frozen sentence-transformer movie retrieval under a realistic small-data setting?
+Can lightweight adapters improve frozen sentence-transformer movie retrieval under a realistic small-data setting, and does structure-aware item fusion matter more than adding nonlinear capacity?
 
 The key comparison is not just final recall. The project tracks whether extra trainable capacity actually helps after controlling for:
 
@@ -21,6 +32,12 @@ The key comparison is not just final recall. The project tracks whether extra tr
 - overfitting risk
 - trainable parameter count
 - retrieval latency
+
+## How This Fits into CineSeek
+
+CineSeek uses frozen sentence-transformer embeddings for fast product-facing retrieval. CineSeek-Adapters is the training and adaptation layer around that system: it tests whether ranking quality can be improved without turning the deployed demo into a training-heavy service.
+
+The project also explains why the original trained dual-tower checkpoint underperformed the raw embedding baseline. The key lesson is that small-data adaptation should avoid relearning the full semantic space. A better path is to keep the query representation stable, learn a lightweight item-side or post-embedding adapter, and train against the same catalog used at retrieval time.
 
 ## Methods
 
@@ -46,7 +63,10 @@ cineseek-adapters/
 │   └── train.py
 ├── scripts/
 │   ├── evaluate_baseline.sh
+│   ├── train_concat_linear_adapter.sh
 │   └── train_residual_adapter.sh
+├── docs/
+│   └── retrieval_training_notes.md
 ├── experiments/
 └── artifacts/checkpoints/
 ```
@@ -97,6 +117,27 @@ Evaluate the checkpoint:
 ```bash
 PYTHONPATH=src python -m cineseek_adapters.evaluate \
   --checkpoint artifacts/checkpoints/residual_mlp.pt \
+  --split test
+```
+
+## Train Concat Linear Adapter
+
+```bash
+PYTHONPATH=src python -m cineseek_adapters.train \
+  --adapter concat_linear \
+  --item-mode title_overview_concat \
+  --epochs 5 \
+  --batch-size 256 \
+  --lr 1e-4 \
+  --title-weight 0.5 \
+  --output artifacts/checkpoints/concat_linear.pt
+```
+
+Evaluate the checkpoint:
+
+```bash
+PYTHONPATH=src python -m cineseek_adapters.evaluate \
+  --checkpoint artifacts/checkpoints/concat_linear.pt \
   --split test
 ```
 
@@ -155,6 +196,10 @@ The concat linear ablation also improved consistently over five epochs, suggesti
 - This suggests that the strongest gain may come from item-side title/overview fusion structure, not just from adding nonlinear capacity.
 - The residual MLP adds less than 0.03 ms per query over the raw baseline in this offline measurement, so the quality gain is not coming from a large inference-cost increase.
 
+## Takeaway
+
+In small-data retrieval settings, the biggest gains may come not from increasing model capacity, but from preserving and restructuring pretrained representations.
+
 ## Training Notes
 
 See [Retrieval Training Notes](docs/retrieval_training_notes.md) for the main lessons from comparing the original CineSeek trained dual-tower checkpoint with the adapter ablations, including why `concat -> projection` worked better after changing the objective and preserving the pretrained embedding space.
@@ -166,3 +211,16 @@ The raw sentence-transformer baseline is already strong, but the adapter results
 The most important result is the concat linear ablation. It outperforms both the raw baseline and the residual MLP while using fewer parameters than the residual MLP. This suggests that CineSeek benefits more from structured item-side title/overview fusion than from simply adding nonlinear capacity.
 
 The main engineering lesson is that small-data retrieval adaptation should avoid relearning the full semantic space. A stable setup keeps the query encoder frozen, initializes item fusion near the raw baseline, and trains against the full movie catalog so the objective matches retrieval-time ranking.
+
+## Limitations
+
+- Results are measured on an offline movie-query benchmark, not online user traffic.
+- Gains may be smaller when the frozen baseline is already saturated or when query distribution shifts away from the training set.
+- The adapter experiments use cached sentence-transformer embeddings, so they do not evaluate end-to-end encoder fine-tuning.
+- Latency is measured in an offline evaluation loop; production serving latency would depend on batching, index construction, and deployment hardware.
+
+## Future Work
+
+- Test whether adapter-enhanced item embeddings improve qualitative results in the CineSeek web demo.
+- Extend the same adapter framework to multimodal embeddings from CineSeek-MM.
+- Compare item-side adaptation against query-side and symmetric query-item adapters under stricter latency budgets.
