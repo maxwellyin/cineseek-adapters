@@ -155,6 +155,10 @@ The concat linear ablation also improved consistently over five epochs, suggesti
 - This suggests that the strongest gain may come from item-side title/overview fusion structure, not just from adding nonlinear capacity.
 - The residual MLP adds less than 0.03 ms per query over the raw baseline in this offline measurement, so the quality gain is not coming from a large inference-cost increase.
 
+## Training Notes
+
+See [Retrieval Training Notes](docs/retrieval_training_notes.md) for the main lessons from comparing the original CineSeek trained dual-tower checkpoint with the adapter ablations, including why `concat -> projection` worked better after changing the objective and preserving the pretrained embedding space.
+
 ## Expected Interpretation
 
 The raw sentence-transformer baseline is already strong. A useful adapter result is not guaranteed. That is the point of the project: it shows disciplined model adaptation and ablation rather than forcing a more complex model into the deployed CineSeek demo.
